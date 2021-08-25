@@ -2,6 +2,7 @@
 from package_utils import data_handler, get_incremental_list_of_dates
 from pyspark.sql.functions import monotonically_increasing_id, row_number
 from pyspark.sql import Window
+from pyspark.sql.types import StringType
 
 
 def main():
@@ -97,7 +98,8 @@ def main():
     |      Phoenix|      2021-09-29 00:00:00|      2021-10-03 00:00:00|  96 hours|
     +-------------+-------------------------+-------------------------+---------+
     """
-    city_date_data.toPandas().to_csv("C:\\Users\\sanjeev\\PycharmProjects\\maersk_assign\\city_data.csv")
+    data_df = city_date_data.withColumn("time_taken", city_date_data["time_taken"].cast(StringType()))
+    data_df.toPandas().to_csv("C:\\Users\\sanjeev\\PycharmProjects\\maersk_assign\\city_data.csv")
 
 
 if __name__ == '__main__':
