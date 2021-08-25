@@ -1,8 +1,18 @@
 # Main driver script
-from package_utils import data_handler, get_incremental_list_of_dates
-from pyspark.sql.functions import monotonically_increasing_id, row_number
+from package_utils import \
+    data_handler,\
+    get_incremental_list_of_dates,\
+    convert_to_date_udf
+
+from pyspark.sql.functions import\
+    monotonically_increasing_id,\
+    row_number,\
+    col,\
+    lit
 from pyspark.sql import Window
 from pyspark.sql.types import StringType
+
+import datetime
 
 
 def main():
@@ -53,6 +63,8 @@ def main():
     |    Derick|   Dhamer|Studer, Eugene A Esq|    87163 N Main Ave|New York|New York|   NY|10013|212-304-4515|212-225-9676|     ddhamer@cox.net|http://www.studer...| New York|      1400|       1|
     +----------+---------+--------------------+--------------------+--------+--------+-----+-----+------------+------------+--------------------+--------------------+---------+----------+--------+
     """
+    # maintain the original df, to also process the parallel thing
+    parallel_vaccination_plan = data_handler.VaccinationDrivePlan
     # Now we need to merge the incremental sequence with the data that we have
     emp_planned_per_day = 100
     vaccination_start_date = "25/08/2021"
@@ -98,8 +110,51 @@ def main():
     |      Phoenix|      2021-09-29 00:00:00|      2021-10-03 00:00:00|  96 hours|
     +-------------+-------------------------+-------------------------+---------+
     """
+    # convert the interval schema to string
     data_df = city_date_data.withColumn("time_taken", city_date_data["time_taken"].cast(StringType()))
     data_df.toPandas().to_csv("C:\\Users\\sanjeev\\PycharmProjects\\maersk_assign\\city_data.csv")
+
+    ##############################################################
+    ## Parallel vaccination plan
+    ##############################################################
+
+    print("creating the view")
+    parallel_vaccination_plan.createOrReplaceTempView("parallel_vaccination_plan")
+    # modify the data. on grouping by city, and incrementing data on gap of 100 rows.
+    parallel_vaccination_plan = data_handler.execute_query(f"""
+                select *, CAST(((row_num - ((row_num - 1) % {emp_planned_per_day})) / {emp_planned_per_day}) as Int) + 1 as itr from 
+                (select *, row_number() over(partition by city order by population desc) as row_num from parallel_vaccination_plan) 
+                """).drop("row_num")
+    print("addding the date")
+    # create the vaccination_slot_day column
+    parallel_vaccination_plan = parallel_vaccination_plan.withColumn(
+        'vaccination_slot_day', convert_to_date_udf(col("itr"))
+    ).drop("itr")
+    parallel_vaccination_plan.show(300, truncate=False)
+    """
+    +----------+---------+-----------------------+---------------+---------+--------------------+-----+-----+------------+------------+---------------------+------------------------------------+---------+----------+--------+--------------------+
+    |first_name|last_name|company_name           |address        |city     |county              |state|zip  |phone1      |phone2      |email                |web                                 |city_name|population|sequence|vaccination_slot_day|
+    +----------+---------+-----------------------+---------------+---------+--------------------+-----+-----+------------+------------+---------------------+------------------------------------+---------+----------+--------+--------------------+
+    |Erick     |Ferencz  |Cindy Turner Associates|20 S Babcock St|Fairbanks|Fairbanks North Star|AK   |99712|907-741-1044|907-227-6777|erick.ferencz@aol.com|http://www.cindyturnerassociates.com|Fairbanks|200       |35      |25/08/2021          |
+    |Erick     |Ferencz  |Cindy Turner Associates|20 S Babcock St|Fairbanks|Fairbanks North Star|AK   |99712|907-741-1044|907-227-6777|erick.ferencz@aol.com|http://www.cindyturnerassociates.com|Fairbanks|200       |35      |25/08/2021          |
+    |Roxane    |Campain  |Rapid Trading Intl     |1048 Main St   |Fairbanks|Fairbanks North Star|AK   |99708|907-231-4722|907-335-6568|roxane@hotmail.com   |http://www.rapidtradingintl.com     |Fairbanks|200       |35      |25/08/2021          |
+    |Roxane    |Campain  |Rapid Trading Intl     |1048 Main St   |Fairbanks|Fairbanks North Star|AK   |99708|907-231-4722|907-335-6568|roxane@hotmail.com   |http://www.rapidtradingintl.com     |Fairbanks|200       |35      |25/08/2021          |
+    |Roxane    |Campain  |Rapid Trading Intl     |1048 Main St   |Fairbanks|Fairbanks North Star|AK   |99708|907-231-4722|907-335-6568|roxane@hotmail.com   |http://www.rapidtradingintl.com     |Fairbanks|200       |35      |25/08/2021          |
+    +----------+---------+-----------------------+---------------+---------+--------------------+-----+-----+------------+------------+---------------------+------------------------------------+---------+----------+--------+--------------------+
+    
+    """
+    # refresh the view
+    parallel_vaccination_plan.createOrReplaceTempView("parallel_vaccination_plan")
+
+    # calculate the max and minimum date for the city
+    parallel_vaccination_plan_rpt_df = data_handler.execute_query("select city,"
+                                                                  " MIN(vaccination_slot_day),"
+                                                                  " MAX(vaccination_slot_day)"
+                                                                  " from parallel_vaccination_plan group by city")
+    parallel_vaccination_plan_rpt_df.show()
+    data_df = parallel_vaccination_plan_rpt_df.withColumn("time_taken",
+                                                          parallel_vaccination_plan_rpt_df["time_taken"].cast(StringType()))
+    data_df.toPandas().to_csv("C:\\Users\\sanjeev\\PycharmProjects\\maersk_assign\\parallel_city_data.csv")
 
 
 if __name__ == '__main__':

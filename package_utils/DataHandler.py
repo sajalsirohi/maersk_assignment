@@ -1,10 +1,12 @@
 import pyspark
 
-import pandas as pd
 from package_utils.spark_session import spark
-
-from pyspark.sql.types import StructType
 from pyspark.sql.functions import rand
+
+try:
+    import pandas as pd
+except ModuleNotFoundError:
+    pd = None
 
 
 class DataHandler:
