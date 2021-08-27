@@ -8,7 +8,10 @@ from pyspark.sql.functions import\
     monotonically_increasing_id,\
     row_number,\
     col,\
-    lit
+    lit, \
+    unix_timestamp,\
+    from_unixtime
+
 from pyspark.sql import Window
 from pyspark.sql.types import StringType
 
@@ -130,7 +133,7 @@ def main():
     parallel_vaccination_plan = parallel_vaccination_plan.withColumn(
         'vaccination_slot_day', convert_to_date_udf(col("itr"))
     ).drop("itr")
-    parallel_vaccination_plan.show(300, truncate=False)
+    parallel_vaccination_plan.show(10, truncate=False)
     """
     +----------+---------+-----------------------+---------------+---------+--------------------+-----+-----+------------+------------+---------------------+------------------------------------+---------+----------+--------+--------------------+
     |first_name|last_name|company_name           |address        |city     |county              |state|zip  |phone1      |phone2      |email                |web                                 |city_name|population|sequence|vaccination_slot_day|
@@ -143,6 +146,14 @@ def main():
     +----------+---------+-----------------------+---------------+---------+--------------------+-----+-----+------------+------------+---------------------+------------------------------------+---------+----------+--------+--------------------+
     
     """
+    # converting the string column to timestamp column in the query
+    parallel_vaccination_plan = parallel_vaccination_plan.withColumn("vaccination_slot_day",
+                                                                     from_unixtime(
+                                                                         unix_timestamp('vaccination_slot_day', 'dd/MM/yyyy')).alias(
+                                                                         'vaccination_slot_day'
+                                                                     )
+                                                                     )
+    parallel_vaccination_plan.show(30)
     # refresh the view
     parallel_vaccination_plan.createOrReplaceTempView("parallel_vaccination_plan")
 
